@@ -1,0 +1,153 @@
+#! /bin/bash
+#This script will allow for you to easily install EasyApache 4 and change PHP Handlers for EasyApache 4
+#This section allows you to install EasyApache4 if it's already installed you can skip to updating the PHP Handlers
+clear
+
+PS3='Is EasyApache4 Already Installed?: '
+options=("Yes" "No" "Quit")
+
+select opt in "${options[@]}"
+do
+    case $opt in
+        "Yes")
+            ;;
+        "No")
+            installea4='/scripts/migrate_ea3_to_ea4 --run'
+            echo "Did you want to install now: "
+                  select yn in "Yes" "No"; do
+                  case $yn in
+                       Yes ) $installea4; break;;
+                       No ) exit;;
+             esac
+       done
+            ;;
+        "Quit")
+            break
+            ;;
+        *) echo invalid option;;
+    esac
+      break
+done 
+
+#This section allows you to choose the default PHP Version 5.4 5.5 5.6 7.0
+PS3='Choose the default PHP version: '
+options=("PHP 5.4" "PHP 5.5" "PHP 5.6" "PHP 7.0" "Quit")
+echo "Choose the default PHP version: "
+defphp54="/usr/local/cpanel/bin/rebuild_phpconf --default=ea-php54"
+defphp55="/usr/local/cpanel/bin/rebuild_phpconf --default=ea-php55"
+defphp56="/usr/local/cpanel/bin/rebuild_phpconf --default=ea-php56"
+defphp70="/usr/local/cpanel/bin/rebuild_phpconf --default=ea-php70"
+select opt in "${options[@]}"
+do
+    case $opt in
+
+        "PHP 5.4")
+            echo "Default PHP Version changed to 5.4";
+            #script to change PHP version
+            $defphp54
+            ;;
+        "PHP 5.5")
+            echo "Default PHP Version changed to 5.5";
+            #script to change PHP version
+            $defphp55
+            ;;
+        "PHP 5.6")
+            echo "Default PHP Version changed to 5.6";
+            #script to change PHP version
+            $defphp56
+            ;;
+        "PHP 7.0")
+            echo "Default PHP Version changed to 7.0";
+            #script to change PHP version
+            $defphp70
+            ;;
+        "Quit")
+            break
+            ;;
+        *) echo invalid option;;
+    esac
+      break
+done 
+
+#This section is the prompt for you to select which PHP Handler to be enabled
+PS3='Please enter your choice: '
+options=("suPHP" "cgi" "DSO" "Quit")
+echo "Please Choose the PHP Handler: "
+select opt in "${options[@]}"
+do
+    case $opt in
+        "suPHP")
+            echo "suPHP it is!";
+            #add suPHP handlers to /etc/suphp.conf
+cp /etc/suphp.conf /etc/suphp.conf.backup
+echo suphp.conf backed up to /etc/suphp.conf.backup
+#This section imports the PHP Handler scripts into the correct .conf file
+match='"php:\/opt\/php52\/bin\/php-cgi"'
+php54='application/x-httpd-ea-php54="php:/opt/cpanel/ea-php54/root/usr/bin/php-cgi"'
+php55='application/x-httpd-ea-php55="php:/opt/cpanel/ea-php55/root/usr/bin/php-cgi"'
+php56='application/x-httpd-ea-php56="php:/opt/cpanel/ea-php56/root/usr/bin/php-cgi"'
+php70='application/x-httpd-ea-php70="php:/opt/cpanel/ea-php70/root/usr/bin/php-cgi"'
+fileconf='/etc/suphp.conf'
+#cgiphp='yum install ea-apache24-mod_proxy_fcgi ea-php56-php-fpm'
+#cgirebuild='/usr/local/cpanel/bin/rebuild_phpconf --ea-php55=cgi --ea-php56=cgi --ea-php70=cgi --error'
+
+   sudo sed -i "/$match/a$php54\n$php55\n$php56\n$php70" $fileconf
+           break
+            ;;
+        "cgi")
+            echo "FastCGI it is!";
+            cgiphp='yum install ea-apache24-mod_proxy_fcgi ea-php56-php-fpm'
+            cgirebuild='/usr/local/cpanel/bin/rebuild_phpconf --ea-php55=cgi --ea-php56=cgi --ea-php70=cgi --error'
+            $cgiphp;
+            $cgirebuild;
+            echo "What is the username?: "
+            read username 
+            mkdir -p /home/'$username'/run/; chown $username. /home/$username/run/; 
+            cd /opt/cpanel/ea-php56/root/etc/php-fpm.d/; cp www.conf.example $username.conf;
+poolwww='Start a new pool named 'www'.'
+userconfsock='listen = /home/'$username'/run/php56-fpm.sock'
+userconf="/opt/cpanel/ea-php56/root/etc/php-fpm.d/$username.conf"
+listenowner="listen.owner = "$username""
+listengroup='listen.group = nobody'
+rpmuser="user = "$username""
+rpmgroup="group = "$username""
+errorlog='php_admin_value[error_log] = /home/'$username'/logs/ea-php56-php-fpm.log'
+phpsession='php_value[session.save_path] = /home/'$username'/session'
+vhost='hostname -i'
+vhostport="$vhost:80"
+userdmod='<IfModule proxy_fcgi_module>\n
+     ProxyPassMatch "^/(.*\.php(/.*)?)$" "unix:/home/'$username'/run/php56-fpm.sock|fcgi://localhost/home/'$username'/public_html/"\n
+     DirectoryIndex index.php\n
+ </IfModule>'
+fpmconf=/etc/apache2/conf.d/userdata/std/2_4/$username/$vhostport/fpm.conf
+userusername="user_'$username'"
+            
+            /etc/init.d/ea-php56-php-fpm stop;
+            /etc/init.d/ea-php56-php-fpm start;
+            sudo sed -i '2s/.*/'$userusername'/' $userconf;
+            sudo sed -i '12s/.*/'$userconfsock'/' $userconf;
+            sudo sed -i '31s/.*/'$listenowner'/' $userconf;
+            sudo sed -i '32s/.*/'$listengroup'/' $userconf;
+            sudo sed -i '39s/.*/'$rpmuser'/' $userconf;
+            sudo sed -i '41s/.*/'$rpmgroup'/' $userconf;
+            sudo sed -i '219s/.*/'$errorlog'/' $userconf;
+            sudo sed -i '225s/.*/'$phpsession'/' $userconf;
+            mkdir -p /etc/apache2/conf.d/userdata/std/2_4/"$username"/"$vhostport";
+            mkdir -p /etc/apache2/conf.d/userdata/ssl/2_4/"$username"/"$vhostport";
+            touch /etc/apache2/conf.d/userdata/std/2_4/"$username"/"$vhostport"/fpm.conf
+            echo "$userdmod" > $fpmconf;
+            cp /etc/apache2/conf.d/userdata/std/2_4/"$username"/"$vhostport"/fpm.conf /etc/apache2/conf.d/userdata/ssl/2_4/"$username"/"$vhostport"/fpm.conf;
+             /scripts/rebuildhttpdconf; service httpd restart graceful
+
+            break
+            ;;
+        "DSO")
+            echo "you chose DSO"
+            ;;
+        "Quit")
+            break
+            ;;
+        *) echo invalid option;;
+    esac
+      break
+done 
